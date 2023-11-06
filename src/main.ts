@@ -36,7 +36,7 @@ leaflet
 // Define the player inventory and cache structure
 interface Cache {
   location: leaflet.LatLngExpression;
-  marker: leaflet.Marker;
+  marker: leaflet.Marker | null; // allowing marker to be null for my code
   coins: number;
 }
 
@@ -65,50 +65,61 @@ function makeCache(i: number, j: number) {
   );
 
   let coins = Math.floor(luck([i, j, "cacheValue"].toString()) * 100);
+  const cache: Cache = { location, coins, marker: null }; // Initially marker is null
 
-  const marker = leaflet.marker(location);
-  marker.bindPopup(() => {
+  const updatePopupContent = () => {
     const container = document.createElement("div");
     container.innerHTML = `
-      <div>Cache at "${i},${j}" with ${coins} coins.</div>
+      <div>Cache at "${i},${j}" with ${cache.coins} coins.</div>
       <button id="collect">Collect</button>
       <button id="deposit">Deposit</button>
     `;
-    const collectButton =
-      container.querySelector<HTMLButtonElement>("#collect")!;
-    const depositButton =
-      container.querySelector<HTMLButtonElement>("#deposit")!;
+    // Since the popup content can potentially be a string, a function, or an HTMLElement,
+    // we check the type before attempting to access 'querySelector'
+    if (container instanceof HTMLElement) {
+      const collectButton =
+        container.querySelector<HTMLButtonElement>("#collect");
+      const depositButton =
+        container.querySelector<HTMLButtonElement>("#deposit");
 
-    // Event listener for collecting coins
-    collectButton.addEventListener("click", () => {
-      player.coins += coins; // Add coins to player's inventory
-      coins = 0; // Cache is now empty
-      updateStatusPanel();
-      marker.getPopup()?.setContent(container.innerHTML); // Update popup content
-    });
-
-    // Event listener for depositing coins
-    depositButton.addEventListener("click", () => {
-      if (player.coins > 0) {
-        coins += player.coins; // Add player's coins to cache
-        player.coins = 0; // Player now has 0 coins
+      // Event listener for collecting coins
+      collectButton?.addEventListener("click", () => {
+        player.coins += cache.coins; // Add coins to player's inventory
+        cache.coins = 0; // Cache is now empty
         updateStatusPanel();
-        marker.getPopup()?.setContent(container.innerHTML); // Update popup content
-      }
-    });
+        cache.marker?.setPopupContent(updatePopupContent()); // Update popup content
+      });
 
+      // Event listener for depositing coins
+      depositButton?.addEventListener("click", () => {
+        if (player.coins > 0) {
+          cache.coins += player.coins; // Add player's coins to cache
+          player.coins = 0; // Player now has 0 coins
+          updateStatusPanel();
+          cache.marker?.setPopupContent(updatePopupContent()); // Update popup content
+        }
+      });
+    }
     return container;
-  });
-  marker.addTo(map);
+  };
 
-  // Add the cache to the caches array
-  caches.push({ location, marker, coins });
+  // Create the marker and assign it to the cache object
+  const marker = leaflet
+    .marker(location)
+    .bindPopup(updatePopupContent)
+    .addTo(map);
+
+  cache.marker = marker; // Now we set the marker
+  caches.push(cache); // Add the cache to the caches array
 }
 
-// Generate caches
-for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
-  for (let j = -NEIGHBORHOOD_SIZE; j < NEIGHBORHOOD_SIZE; j++) {
-    if (luck([i, j].toString()) < CACHE_SPAWN_PROBABILITY) {
+// Generate caches      ensure that the math abs does not exceed 8 https://www.geeksforgeeks.org/java-math-abs-method-examples/
+for (let i = -NEIGHBORHOOD_SIZE; i <= NEIGHBORHOOD_SIZE; i++) {
+  for (let j = -NEIGHBORHOOD_SIZE; j <= NEIGHBORHOOD_SIZE; j++) {
+    if (
+      Math.abs(i) + Math.abs(j) <= NEIGHBORHOOD_SIZE &&
+      luck([i, j].toString()) < CACHE_SPAWN_PROBABILITY
+    ) {
       makeCache(i, j);
     }
   }
