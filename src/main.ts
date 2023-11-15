@@ -40,7 +40,7 @@ interface Coin {
 }
 
 interface Cache {
-  location: leaflet.LatLngExpression;
+  location: leaflet.LatLng; // Changed from LatLngExpression to LatLng
   marker: leaflet.Marker | null;
   coins: Coin[];
 }
@@ -54,7 +54,7 @@ const player = {
     .bindTooltip("That's you!"),
 };
 
-const caches: Cache[] = [];
+let caches: Cache[] = [];
 
 // Update the status panel function
 const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
@@ -81,11 +81,10 @@ function createCoins(
 }
 
 // Function to create a cache
-function makeCache(i: number, j: number) {
-  const location = leaflet.latLng(
-    MERRILL_CLASSROOM.lat + i * TILE_DEGREES,
-    MERRILL_CLASSROOM.lng + j * TILE_DEGREES
-  );
+function makeCache(i: number, j: number, isNew: boolean = true) {
+  const latOffset = player.location.lat + i * TILE_DEGREES;
+  const lngOffset = player.location.lng + j * TILE_DEGREES;
+  const location = leaflet.latLng(latOffset, lngOffset);
 
   const gridCoords = latLngToGrid(location.lat, location.lng);
   let numCoins = Math.floor(luck([i, j, "cacheValue"].toString()) * 100);
@@ -95,10 +94,9 @@ function makeCache(i: number, j: number) {
 
   const updatePopupContent = () => {
     const container = document.createElement("div");
-
     const coinListContainer = document.createElement("div");
-    coinListContainer.style.maxHeight = "150px"; // Set a maximum height for the coin list
-    coinListContainer.style.overflowY = "auto"; // Enable vertical scrolling
+    coinListContainer.style.maxHeight = "150px";
+    coinListContainer.style.overflowY = "auto";
     coinListContainer.innerHTML = cache.coins
       .map((coin) => `<div>${coin.id}</div>`)
       .join("");
@@ -110,7 +108,6 @@ function makeCache(i: number, j: number) {
       <button id="collect">Collect</button>
       <button id="deposit">Deposit</button>
     `;
-
     container.appendChild(buttonsContainer);
 
     if (container instanceof HTMLElement) {
@@ -119,25 +116,24 @@ function makeCache(i: number, j: number) {
       const depositButton =
         container.querySelector<HTMLButtonElement>("#deposit");
 
-      // Event listener for collecting coins
       collectButton?.addEventListener("click", () => {
-        player.coins += cache.coins.length; // Add number of coins to player's inventory
-        cache.coins = []; // Cache is now empty
+        player.coins += cache.coins.length;
+        cache.coins = [];
         updateStatusPanel();
-        cache.marker?.setPopupContent(updatePopupContent()); // Update popup content
+        cache.marker?.setPopupContent(updatePopupContent());
       });
 
-      // Event listener for depositing coins
       depositButton?.addEventListener("click", () => {
         if (player.coins > 0) {
           const newCoins = createCoins(gridCoords, player.coins);
-          cache.coins.push(...newCoins); // Add new coins to cache
-          player.coins = 0; // Player now has 0 coins
+          cache.coins.push(...newCoins);
+          player.coins = 0;
           updateStatusPanel();
-          cache.marker?.setPopupContent(updatePopupContent()); // Update popup content
+          cache.marker?.setPopupContent(updatePopupContent());
         }
       });
     }
+
     return container;
   };
 
@@ -145,10 +141,108 @@ function makeCache(i: number, j: number) {
     .marker(location)
     .bindPopup(updatePopupContent)
     .addTo(map);
-
   cache.marker = marker;
-  caches.push(cache);
+  if (isNew) {
+    caches.push(cache);
+  }
 }
+
+// Functions for check and geenrate Caches
+function checkAndGenerateCaches() {
+  // Get the player's current grid location
+  const playerGrid = latLngToGrid(player.location.lat, player.location.lng);
+
+  // Determine which caches are out of range and hide their markers
+  caches.forEach((cache) => {
+    const cacheGrid = latLngToGrid(cache.location.lat, cache.location.lng);
+    if (
+      Math.abs(cacheGrid.i - playerGrid.i) +
+        Math.abs(cacheGrid.j - playerGrid.j) >
+      NEIGHBORHOOD_SIZE
+    ) {
+      if (cache.marker) {
+        cache.marker.remove(); // Hide the marker from the map
+      }
+    } else {
+      if (cache.marker && !map.hasLayer(cache.marker)) {
+        cache.marker.addTo(map); // Re-add the marker to the map if it's within range
+      }
+    }
+  });
+
+  // Generate new caches if necessary
+  for (let i = -NEIGHBORHOOD_SIZE; i <= NEIGHBORHOOD_SIZE; i++) {
+    for (let j = -NEIGHBORHOOD_SIZE; j <= NEIGHBORHOOD_SIZE; j++) {
+      const cacheCoords = { i: playerGrid.i + i, j: playerGrid.j + j };
+      const alreadyExists = caches.some((cache) => {
+        const gridCoords = latLngToGrid(cache.location.lat, cache.location.lng);
+        return (
+          gridCoords.i === cacheCoords.i &&
+          gridCoords.j === cacheCoords.j &&
+          cache.coins.length > 0
+        );
+      });
+
+      if (
+        !alreadyExists &&
+        luck([cacheCoords.i, cacheCoords.j].toString()) <
+          CACHE_SPAWN_PROBABILITY
+      ) {
+        makeCache(i, j); // Add the new cache, marking it as a new cache
+      }
+    }
+  }
+}
+
+// requirement cachememento
+class CacheMemento {
+  constructor(public state: Cache[]) {}
+}
+
+let savedState: CacheMemento;
+
+// save caches
+function saveCachesState() {
+  savedState = new CacheMemento([...caches]);
+}
+
+// restore caches
+function restoreCachesState() {
+  if (savedState) {
+    caches = savedState.state;
+    caches.forEach((cache) => {
+      if (cache.marker && !map.hasLayer(cache.marker)) {
+        cache.marker.addTo(map);
+      }
+    });
+  }
+}
+
+// Function for moving player
+function movePlayer(latChange: number, lngChange: number) {
+  saveCachesState();
+  player.location = leaflet.latLng(
+    player.location.lat + latChange,
+    player.location.lng + lngChange
+  );
+  player.marker.setLatLng(player.location);
+  map.panTo(player.location);
+  restoreCachesState();
+  checkAndGenerateCaches();
+  updateStatusPanel();
+}
+
+// Link the buttons
+const northButton = document.getElementById("north") as HTMLButtonElement;
+const southButton = document.getElementById("south") as HTMLButtonElement;
+const westButton = document.getElementById("west") as HTMLButtonElement;
+const eastButton = document.getElementById("east") as HTMLButtonElement;
+
+// EventListener for buttons
+northButton.addEventListener("click", () => movePlayer(TILE_DEGREES, 0));
+southButton.addEventListener("click", () => movePlayer(-TILE_DEGREES, 0));
+westButton.addEventListener("click", () => movePlayer(0, -TILE_DEGREES));
+eastButton.addEventListener("click", () => movePlayer(0, TILE_DEGREES));
 
 // Generate caches
 for (let i = -NEIGHBORHOOD_SIZE; i <= NEIGHBORHOOD_SIZE; i++) {
