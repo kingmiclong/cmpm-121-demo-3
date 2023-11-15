@@ -95,12 +95,23 @@ function makeCache(i: number, j: number) {
 
   const updatePopupContent = () => {
     const container = document.createElement("div");
-    container.innerHTML = `
-      <div>Cache at "${i},${j}" with coins:</div>
-      ${cache.coins.map((coin) => `<div>${coin.id}</div>`).join("")}
+
+    const coinListContainer = document.createElement("div");
+    coinListContainer.style.maxHeight = "150px"; // Set a maximum height for the coin list
+    coinListContainer.style.overflowY = "auto"; // Enable vertical scrolling
+    coinListContainer.innerHTML = cache.coins
+      .map((coin) => `<div>${coin.id}</div>`)
+      .join("");
+
+    container.appendChild(coinListContainer);
+
+    const buttonsContainer = document.createElement("div");
+    buttonsContainer.innerHTML = `
       <button id="collect">Collect</button>
       <button id="deposit">Deposit</button>
     `;
+
+    container.appendChild(buttonsContainer);
 
     if (container instanceof HTMLElement) {
       const collectButton =
